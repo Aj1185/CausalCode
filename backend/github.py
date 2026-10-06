@@ -9,7 +9,7 @@ from urllib.request import Request, urlopen
 from pydantic import BaseModel, Field, field_validator
 
 
-MAX_GITHUB_ISSUES = 20
+MAX_GITHUB_ISSUES = 100
 MAX_ISSUE_BODY = 4000
 
 

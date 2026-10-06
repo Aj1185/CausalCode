@@ -8,7 +8,9 @@ const state = {
   timelineFilter: { search: '', author: '', depOnly: false },
   depFilter: { search: '', status: '' },
   depSort: { column: 'name', dir: 'asc' },
-  expandedDepName: null
+  expandedDepName: null,
+  issues: [],
+  issuesFilter: { search: '', label: '' }
 };
 
 const $ = (id) => document.getElementById(id);
@@ -70,7 +72,7 @@ function initTheme() {
   let savedTheme = null;
   try {
     savedTheme = localStorage.getItem("causalcode_theme");
-  } catch {}
+  } catch { }
 
   if (!savedTheme) {
     savedTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -88,7 +90,7 @@ function setTheme(theme, save = true) {
   if (save) {
     try {
       localStorage.setItem("causalcode_theme", theme);
-    } catch {}
+    } catch { }
   }
 }
 
@@ -104,7 +106,7 @@ try {
   if (lastUrl && $("repo-url")) {
     $("repo-url").value = lastUrl;
   }
-} catch {}
+} catch { }
 
 // Example Chips Handler
 document.querySelectorAll(".chip-btn").forEach((chip) => {
@@ -189,6 +191,7 @@ function resetState() {
   state.dependencies = [];
   state.timeline = [];
   state.expandedDepName = null;
+  state.issues = [];
 
   // Hide results area completely
   $("workspace")?.classList.add("hidden");
@@ -215,17 +218,18 @@ function resetState() {
   // Refresh tab views if active
   if (state.activeTab === "timeline") renderFullTimeline();
   if (state.activeTab === "dependencies") renderFullDependencies();
+  if (state.activeTab === "issues") renderFullIssues();
   if (state.activeTab === "report") renderReport();
 }
 
 /* Tab Navigation Router */
 function getTabFromHash() {
   const hash = window.location.hash.replace("#", "");
-  return ["overview", "timeline", "dependencies", "about", "report"].includes(hash) ? hash : "overview";
+  return ["overview", "timeline", "dependencies", "issues", "about", "report"].includes(hash) ? hash : "overview";
 }
 
 function switchTab(tabName, updateHash = true) {
-  if (!["overview", "timeline", "dependencies", "about", "report"].includes(tabName)) tabName = "overview";
+  if (!["overview", "timeline", "dependencies", "issues", "about", "report"].includes(tabName)) tabName = "overview";
   state.activeTab = tabName;
 
   document.querySelectorAll(".tab-item").forEach((el) => {
@@ -242,6 +246,7 @@ function switchTab(tabName, updateHash = true) {
 
   if (tabName === "timeline") renderFullTimeline();
   if (tabName === "dependencies") renderFullDependencies();
+  if (tabName === "issues") renderFullIssues();
   if (tabName === "report") renderReport();
 
   setTimeout(initScrollReveal, 50);
@@ -288,7 +293,7 @@ $("analyze-form").addEventListener("submit", async (event) => {
   const repoUrlVal = $("repo-url").value;
   try {
     localStorage.setItem("causalcode_last_repo_url", repoUrlVal);
-  } catch {}
+  } catch { }
 
   try {
     state.repo = await api("/api/v1/repos", {
@@ -334,14 +339,24 @@ async function renderWorkspace() {
   // Fetch timeline entries
   state.timeline = await api(`/api/v1/repos/${state.sessionId}/timeline`);
 
+  // Fetch issues (failsafe if API returns error)
+  try {
+    state.issues = await api(`/api/v1/repos/${state.sessionId}/issues`) || [];
+  } catch (err) {
+    console.error("Issue fetch failed", err);
+    state.issues = [];
+  }
+
   renderDependencies();
   renderOverviewTimeline(state.timeline);
   renderOverviewMetrics();
   populateDependencySelect();
   populateAuthorFilter();
+  populateIssuesFilter();
 
   if (state.activeTab === "timeline") renderFullTimeline();
   if (state.activeTab === "dependencies") renderFullDependencies();
+  if (state.activeTab === "issues") renderFullIssues();
   if (state.activeTab === "report") renderReport();
 
   setTimeout(initScrollReveal, 100);
@@ -617,7 +632,7 @@ function renderFullTimeline() {
         const originalText = btn.textContent;
         btn.textContent = "Copied";
         setTimeout(() => { btn.textContent = originalText; }, 1500);
-      }).catch(() => {});
+      }).catch(() => { });
     });
   });
 }
@@ -793,12 +808,12 @@ function renderFullDependencies() {
         </thead>
         <tbody>
           ${list.map((item) => {
-            const status = getDepStatus(item);
-            const isExpanded = state.expandedDepName === item.dependency_name;
-            const fileCount = item.current_files ? item.current_files.length : item.current_usage_count;
-            const firstEvent = (item.historical_dependency_events && item.historical_dependency_events.length > 0) ? item.historical_dependency_events[0] : null;
+    const status = getDepStatus(item);
+    const isExpanded = state.expandedDepName === item.dependency_name;
+    const fileCount = item.current_files ? item.current_files.length : item.current_usage_count;
+    const firstEvent = (item.historical_dependency_events && item.historical_dependency_events.length > 0) ? item.historical_dependency_events[0] : null;
 
-            return `
+    return `
               <tr class="dep-row ${isExpanded ? "expanded" : ""}" data-name="${escapeHtml(item.dependency_name)}">
                 <td><strong>${escapeHtml(item.dependency_name)}</strong></td>
                 <td>${escapeHtml(item.ecosystem)}</td>
@@ -829,7 +844,7 @@ function renderFullDependencies() {
                 </tr>
               ` : ""}
             `;
-          }).join("")}
+  }).join("")}
         </tbody>
       </table>
     </div>
@@ -867,9 +882,109 @@ function renderFullDependencies() {
         const originalText = btn.textContent;
         btn.textContent = "Copied";
         setTimeout(() => { btn.textContent = originalText; }, 1500);
-      }).catch(() => {});
+      }).catch(() => { });
     });
   });
+}
+
+/* Issues View Tab Logic */
+function populateIssuesFilter() {
+  const select = $("issues-label-filter");
+  if (!select || !state.issues) return;
+  const labelsSet = new Set();
+  state.issues.forEach(issue => {
+    (issue.labels || []).forEach(label => labelsSet.add(label));
+  });
+  const labels = Array.from(labelsSet).sort();
+  select.innerHTML = '<option value="">All labels</option>' +
+    labels.map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join("");
+}
+
+$("issues-search")?.addEventListener("input", (e) => {
+  state.issuesFilter.search = e.target.value.toLowerCase().trim();
+  renderFullIssues();
+});
+
+$("issues-label-filter")?.addEventListener("change", (e) => {
+  state.issuesFilter.label = e.target.value;
+  renderFullIssues();
+});
+
+$("issues-repo-input")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("issues-fetch-btn")?.click();
+});
+
+$("issues-fetch-btn")?.addEventListener("click", async () => {
+  const repoInput = $("issues-repo-input").value.trim();
+  if (!repoInput) return;
+  setLoading(true);
+  try {
+    const issues = await api(`/api/v1/repos/direct/issues?repo=${encodeURIComponent(repoInput)}`);
+    state.issues = issues || [];
+    state.issuesDirectRepo = repoInput;
+    populateIssuesFilter();
+    renderFullIssues();
+  } catch (err) {
+    console.error("Direct issue fetch failed", err);
+    state.issues = [];
+    $("issues-view-content").innerHTML = `<p class="form-error">Failed to fetch issues: ${escapeHtml(err.message)}</p>`;
+  } finally {
+    setLoading(false);
+  }
+});
+
+function renderFullIssues() {
+  const container = $("issues-view-content");
+  if (!container) return;
+
+  if (!state.issues || !state.issues.length) {
+    if ($("issues-repo-input").value || state.repo) {
+      container.innerHTML = '<p class="empty-state">No open issues found.</p>';
+    } else {
+      container.innerHTML = '<p class="empty-state">Enter a repository above to fetch issues, or analyze a repository in the Overview tab.</p>';
+    }
+    return;
+  }
+
+  let filtered = state.issues.filter(issue => {
+    if (state.issuesFilter.label && !(issue.labels || []).includes(state.issuesFilter.label)) {
+      return false;
+    }
+    if (state.issuesFilter.search) {
+      const q = state.issuesFilter.search;
+      const titleMatch = (issue.title || "").toLowerCase().includes(q);
+      const strMatch = titleMatch || (issue.body || "").toLowerCase().includes(q);
+      return strMatch;
+    }
+    return true;
+  });
+
+  if (!filtered.length) {
+    container.innerHTML = '<p class="empty-state">No issues matched the selected filters.</p>';
+    return;
+  }
+
+  container.innerHTML = `<div class="gh-issue-list">
+    ${filtered.map(issue => `
+      <div class="gh-issue-row">
+        <div class="gh-issue-icon">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="var(--mint-strong)"><path d="M8 9.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"></path><path fill-rule="evenodd" d="M8 0a8 8 0 100 16A8 8 0 008 0zM1.5 8a6.5 6.5 0 1113 0 6.5 6.5 0 01-13 0z"></path></svg>
+        </div>
+        <div class="gh-issue-details">
+          <div class="gh-issue-title-row">
+            <a href="${escapeHtml(issue.html_url)}" target="_blank" class="gh-issue-title">${escapeHtml(issue.title)}</a>
+            <div class="gh-issue-labels">
+              ${(issue.labels || []).map(l => `<span class="gh-issue-label">${escapeHtml(l)}</span>`).join("")}
+            </div>
+          </div>
+          <div class="gh-issue-meta">
+            #${issue.number} opened on ${formatDate(issue.created_at)} by ${escapeHtml(issue.author)}
+            ${issue.comments > 0 ? `<span class="gh-comments-icon"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path fill-rule="evenodd" d="M1.5 2.75a.25.25 0 01.25-.25h12.5a.25.25 0 01.25.25v8.5a.25.25 0 01-.25.25H10l-3.5 3.5v-3.5H1.75a.25.25 0 01-.25-.25v-8.5zM1.75 1A1.75 1.75 0 000 2.75v8.5C0 12.216.784 13 1.75 13H5v4.5l4.5-4.5h4.75A1.75 1.75 0 0016 11.25v-8.5A1.75 1.75 0 0014.25 1H1.75z"></path></svg> ${issue.comments}</span>` : ""}
+          </div>
+        </div>
+      </div>
+    `).join("")}
+  </div>`;
 }
 
 /* Report Tab Logic & Downloads */
@@ -915,9 +1030,9 @@ function renderReport() {
           </thead>
           <tbody>
             ${state.dependencies.map((d) => {
-              const status = getDepStatus(d);
-              const files = d.current_files ? d.current_files.length : d.current_usage_count;
-              return `
+    const status = getDepStatus(d);
+    const files = d.current_files ? d.current_files.length : d.current_usage_count;
+    return `
                 <tr>
                   <td><strong>${escapeHtml(d.dependency_name)}</strong></td>
                   <td>${escapeHtml(d.ecosystem)}</td>
@@ -926,7 +1041,7 @@ function renderReport() {
                   <td><span class="status-pill ${status}">${status}</span></td>
                 </tr>
               `;
-            }).join("")}
+  }).join("")}
           </tbody>
         </table>
       ` : '<p class="empty-state">No dependency manifests found in the examined commits.</p>'}

@@ -40,6 +40,17 @@ def _load_issues(session_id: str) -> tuple[dict, object, list[GitHubIssue]]:
     return row, clone_path, issues
 
 
+@router.get("/direct/issues", response_model=list[GitHubIssue], status_code=status.HTTP_200_OK)
+def fetch_direct_issues(repo: str) -> list[GitHubIssue]:
+    parts = repo.strip("/").split("/")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Repo must be owner/name (e.g. pallets/flask)")
+    try:
+        return fetch_open_issues(parts[0], parts[1])
+    except GitHubError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
 @router.get("/{session_id}/issues", response_model=list[GitHubIssue], status_code=status.HTTP_200_OK)
 def list_issues(session_id: str) -> list[GitHubIssue]:
     return _load_issues(session_id)[2]

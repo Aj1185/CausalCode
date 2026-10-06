@@ -1,11 +1,12 @@
 # Env / secrets
 .env
-!.env.example
+.env.example
+.venv
 
 # Workspace settings shared by the project
 .vscode/
-!.vscode/
-!.vscode/settings.json
+.vscode/
+.vscode/settings.json
 .env.*
 .env.local
 
@@ -26,8 +27,8 @@ htmlcov/
 # IDE
 .idea/
 .vscode/
-!.vscode/
-!.vscode/settings.json
+.vscode/
+.vscode/settings.json
 
 # OS
 .DS_Store
@@ -43,3 +44,7 @@ __pycache__/
 # Test artifacts
 .pytest_tmp/
 .pytest_cache/
+
+
+#node modules
+node_modules/
